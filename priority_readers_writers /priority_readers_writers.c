@@ -42,44 +42,53 @@ int resource_count=0;
 
 
 
-int reading_writing_times=0; // number of times each reader will read the variable and each writer will write the variable
+int reading_writing_times=5; // number of times each reader will read the variable and each writer will write the variable
 unsigned int sleep_time=100; // the maximum amount of time a thread will sleep before reading or writing the variable
 void *reader(int id); // the reader threads will begin reading the variable in this function
 void *writer(int value); // the writer threads will begin writing the variable in this function
-void read_x_times(int id); // the reader threads will read the variable x times in this function
-void write_x_times(int value); // the writer threads will write the variable x times in this function
-
-typedef struct {
-    int id;
-    int value;
-} writer_args; 
 
 int main(void){
     // initialize the mutex lock
     pthread_mutex_init(&sharedvar_mutex, NULL);
     // create the structs for passing arguments to the reader and writer threads
-    // writer_args writer_args;
     // initialize the condition variables
     pthread_cond_init(&readers_cond, NULL);
     pthread_cond_init(&writers_cond, NULL);
+    // initialize an array that accounts for race conditions for id and value
+    int reader_array[NUM_READERS_WRITERS];
+    int writer_array[NUM_READERS_WRITERS];
+
     // create the reader and writer threads
     for(int i=0; i<NUM_READERS_WRITERS; i++){
-        int value = rand()%10;
-        pthread_create(&readers[i], NULL, (void *)reader,i );
-        pthread_create(&writers[i], NULL, (void *)writer, value);
+        reader_array[i]=i;
+        pthread_create(&readers[i], NULL, (void *)writer, reader_array[i]);
+    }
+    for(int i=0; i<NUM_READERS_WRITERS; i++){
+        writer_array[i]=i;
+        pthread_create(&writers[i], NULL, (void *)reader,writer_array[i]);
     }
 
     // join the reader and writer threads
     for(int i=0; i<NUM_READERS_WRITERS; i++){
         pthread_join(readers[i], NULL);
+    }
+
+    for(int i=0; i<NUM_READERS_WRITERS; i++){
         pthread_join(writers[i], NULL);
     }
+
+    // destroy the mutex lock
+    pthread_mutex_destroy(&sharedvar_mutex);
+    // destroy the condition variables    
+    pthread_cond_destroy(&readers_cond);
+    pthread_cond_destroy(&writers_cond);
 
 }
 
 void *reader(int id){
     // sleep for a random amount of time
-    usleep(rand()%sleep_time);
+    for(int i=0;i<reading_writing_times;i++){
+    usleep(sleep_time);
     // lock the mutex lock
     pthread_mutex_lock(&sharedvar_mutex);
     while(resource_count<0){
@@ -94,6 +103,7 @@ void *reader(int id){
     printf("The value read is %d\n", sharedvar);
     printf("The number of readers present when value is read is %d\n", num_readers_atm);
     printf("Currently reader %d reading...\n", id);
+    printf("--------------------------------------------\n");
 
     pthread_mutex_lock(&sharedvar_mutex);
     num_readers_atm-=1; // decrement the number of readers currently reading
@@ -105,9 +115,13 @@ void *reader(int id){
     }
     pthread_mutex_unlock(&sharedvar_mutex);
 
-}
+    }
+	pthread_exit(0);
+    }
 
-void *writer(int value){
+void *writer(int id){
+    for(int i=0; i<reading_writing_times; i++){
+    usleep(sleep_time);
     pthread_mutex_lock(&sharedvar_mutex);
     while(resource_count!=0){
         // if the resource count is more than 0 then there are readers currently reading
@@ -117,10 +131,12 @@ void *writer(int value){
     resource_count=-1; // make the resouce_count -1 to indicate that there is one writer currently writing
     pthread_mutex_unlock(&sharedvar_mutex);
     // write the variable
+    int value = rand()%100;
     sharedvar=value;
     printf("The written value is %d\n", sharedvar);
     printf("The number of readers present when value is written is %d\n", num_readers_atm);
-    // printf("Currently writer %d writing...\n", id);
+    printf("Currently writer %d writing...\n", id);
+    printf("--------------------------------------------\n");
 
     pthread_mutex_lock(&sharedvar_mutex);
     // set the resource count to 0
@@ -128,7 +144,9 @@ void *writer(int value){
     resource_count=0;
     // signal the readers that they can read
     pthread_cond_broadcast(&readers_cond);
+    pthread_cond_signal(&writers_cond);
     pthread_mutex_unlock(&sharedvar_mutex);
 
 }
-
+	pthread_exit(0);
+}
